@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
-    android:src="@drawable/img_app_logo"
-    android:gravity="fill"
-    android:filter="true" />
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#000000"
+        android:pathData="M0,0h108v108H0z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M45,34 L82,25 L82,64 C82,72 76,78 67,78 C59,78 53,74 53,68 C53,61 59,56 67,56 C72,56 76,58 79,60 L79,39 L48,46 L48,72 C48,81 42,87 33,87 C25,87 19,83 19,77 C19,70 25,65 34,65 C38,65 42,66 45,69 Z" />
+</vector>
