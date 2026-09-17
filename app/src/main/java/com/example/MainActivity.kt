@@ -1,48 +1,40 @@
 package com.example
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.navigation.AuraApp
+import com.example.playback.AuraPlaybackNotificationService
 import com.example.ui.theme.AuraMusicTheme
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
-    companion object {
-        private const val NOTIFICATION_PERMISSION_REQUEST = 1001
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         val appContainer = (application as AuraApplication).container
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                NOTIFICATION_PERMISSION_REQUEST
-            )
-        }
-
         setContent {
             AuraMusicTheme(darkTheme = true) {
                 AuraApp(appContainer = appContainer)
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+
+        // Re-arm the playback notification observer whenever Aura returns to the foreground.
+        // This covers cases where Android previously stopped the idle service while no track
+        // was active, without creating a second player or queue.
+        startService(Intent(this, AuraPlaybackNotificationService::class.java))
     }
 }
 
