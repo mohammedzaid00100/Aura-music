@@ -47,11 +47,11 @@ class AuraPlaybackNotificationService : Service() {
 
         systemMediaSession = MediaSession(this, "AuraMusicNotificationSession").apply {
             setCallback(object : MediaSession.Callback() {
-                override fun onPlay() = controller.play()
-                override fun onPause() = controller.pause()
-                override fun onSkipToNext() = controller.skipToNext()
-                override fun onSkipToPrevious() = controller.skipToPrevious()
-                override fun onSeekTo(pos: Long) = controller.seekTo(pos)
+                override fun onPlay() = this@AuraPlaybackNotificationService.controller.play()
+                override fun onPause() = this@AuraPlaybackNotificationService.controller.pause()
+                override fun onSkipToNext() = this@AuraPlaybackNotificationService.controller.skipToNext()
+                override fun onSkipToPrevious() = this@AuraPlaybackNotificationService.controller.skipToPrevious()
+                override fun onSeekTo(pos: Long) = this@AuraPlaybackNotificationService.controller.seekTo(pos)
             })
             isActive = true
         }
