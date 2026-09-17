@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- ==================== OUTER GLASS SQUIRCLE PLATE (Centered inside 66dp safe zone) ==================== -->
+    <!-- Squircle bounds: 22,22 to 86,86 (corner radius 18dp) -->
+
+    <!-- Outer glowing rim / refraction halo -->
+    <path
+        android:pathData="M40,22 L68,22 C80,22 86,28 86,40 L86,68 C86,80 80,86 68,86 L40,86 C28,86 22,80 22,68 L22,40 C22,28 28,22 40,22 Z"
+        android:strokeWidth="3.5"
+        android:strokeAlpha="0.45"
+        android:strokeColor="#5090D0" />
+
+    <!-- Dark translucent frosted glass plate body -->
+    <path
+        android:pathData="M40,22.5 L68,22.5 C79.5,22.5 85.5,28.5 85.5,40 L85.5,68 C85.5,79.5 79.5,85.5 68,85.5 L40,85.5 C28.5,85.5 22.5,79.5 22.5,68 L22.5,40 C22.5,28.5 28.5,22.5 40,22.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="25"
+                android:startY="25"
+                android:endX="85"
+                android:endY="85"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#59203048" />
+                <item android:offset="0.45" android:color="#40101C2E" />
+                <item android:offset="1.0" android:color="#73080F1A" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Squircle Bright Luminous Glass Rim -->
+    <path
+        android:pathData="M40,22.5 L68,22.5 C79.5,22.5 85.5,28.5 85.5,40 L85.5,68 C85.5,79.5 79.5,85.5 68,85.5 L40,85.5 C28.5,85.5 22.5,79.5 22.5,68 L22.5,40 C22.5,28.5 28.5,22.5 40,22.5 Z"
+        android:strokeWidth="1.2">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="24"
+                android:startY="24"
+                android:endX="84"
+                android:endY="84"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#F0FFFFFF" />
+                <item android:offset="0.3" android:color="#C0BAE6FD" />
+                <item android:offset="0.7" android:color="#7038BDF8" />
+                <item android:offset="1.0" android:color="#C0E0F2FE" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- ==================== LIQUID GLASS MUSICAL 'A' GLYPH ==================== -->
+
+    <!-- Ambient Shadow Under Glyph -->
+    <path
+        android:pathData="M54,32 L66,42 L51,60 L38,60 Z"
+        android:fillColor="#50000000" />
+
+    <!-- Top Crystalline Prism Facet Plane -->
+    <path
+        android:pathData="M54,29 L65,39 L49,58 L39,58 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="46"
+                android:startY="29"
+                android:endX="65"
+                android:endY="58"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#707DD3FC" />
+                <item android:offset="0.5" android:color="#3538BDF8" />
+                <item android:offset="1.0" android:color="#150F172A" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Top Facet Prism Diagonal Seam Line -->
+    <path
+        android:pathData="M54,29 L49,58"
+        android:strokeWidth="1.0"
+        android:strokeColor="#90FFFFFF" />
+
+    <!-- Left Leg of the "A" -->
+    <path
+        android:pathData="M54,29 L38.5,58 L48.5,58"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="54"
+                android:startY="29"
+                android:endX="38.5"
+                android:endY="58"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFFFFFF" />
+                <item android:offset="0.5" android:color="#E0BAE6FD" />
+                <item android:offset="1.0" android:color="#B038BDF8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Circular Note Head (Bottom-Left) -->
+    <!-- Core Translucent Glass Disc -->
+    <path
+        android:pathData="M39,63 A8.5,8.5 0 1 1 38.9,63">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="34"
+                android:startY="63"
+                android:endX="48"
+                android:endY="75"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#5038BDF8" />
+                <item android:offset="0.6" android:color="#300F172A" />
+                <item android:offset="1.0" android:color="#600284C7" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Circular Note Head Outer Luminous Glass Ring -->
+    <path
+        android:pathData="M39,63 A8.5,8.5 0 1 1 38.9,63"
+        android:strokeWidth="2.4">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="32"
+                android:startY="63"
+                android:endX="48"
+                android:endY="73"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFFFFFF" />
+                <item android:offset="0.4" android:color="#E0BAE6FD" />
+                <item android:offset="0.8" android:color="#C038BDF8" />
+                <item android:offset="1.0" android:color="#E0E0F2FE" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Note Head Specular Reflection Arc -->
+    <path
+        android:pathData="M33,68 A7,7 0 0 1 40,62"
+        android:strokeWidth="1.0"
+        android:strokeColor="#A0FFFFFF"
+        android:strokeLineCap="round" />
+
+    <!-- Left Vertical Music Stem (Rising from right edge of note head up to crossbar) -->
+    <path
+        android:pathData="M47.5,70 L47.5,58"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="47.5"
+                android:startY="70"
+                android:endX="47.5"
+                android:endY="58"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#E0BAE6FD" />
+                <item android:offset="1.0" android:color="#FFFFFFFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Right Leg & Sweeping J-Hook Musical Note Tail -->
+    <!-- Glowing Outer Glass Tube -->
+    <path
+        android:pathData="M54,29 L65,39 L74,58 C76,62 75.5,67 71.5,70.5 C67.5,74 61.5,74 56.5,70 C53,66.5 53,61 56.5,58 C59.5,55.5 64,56 66.5,59.5 C68.5,62.5 67,66 64,67.5"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="54"
+                android:startY="29"
+                android:endX="72"
+                android:endY="72"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFFFFFF" />
+                <item android:offset="0.35" android:color="#E0BAE6FD" />
+                <item android:offset="0.7" android:color="#C038BDF8" />
+                <item android:offset="1.0" android:color="#E0F0F9FF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Right Hook Inner Glass Core / Volumetric Fill -->
+    <path
+        android:pathData="M65,39 L73,57 C75,61 74,65 71,68 C67,71 62,71 58,68 C55,65 55,61 58,58.5 C60.5,56.5 64,57 65.5,59.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="55"
+                android:startY="40"
+                android:endX="74"
+                android:endY="70"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#407DD3FC" />
+                <item android:offset="0.6" android:color="#250F172A" />
+                <item android:offset="1.0" android:color="#450284C7" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Right Leg Outer Specular Highlight Glint -->
+    <path
+        android:pathData="M71,53 L74,58 C75.5,61 75,65 72.5,68"
+        android:strokeWidth="1.0"
+        android:strokeColor="#C0FFFFFF"
+        android:strokeLineCap="round" />
+
+    <!-- Top Apex Specular Glint Highlight -->
+    <path
+        android:pathData="M52.5,29.5 L55.5,29.5"
+        android:strokeWidth="1.8"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+
+</vector>

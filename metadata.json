@@ -1,0 +1,6 @@
+{
+  "name": "Aura Music",
+  "description": "Original high-fidelity streaming and offline music player with background playback, synchronized lyrics, and queue management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
