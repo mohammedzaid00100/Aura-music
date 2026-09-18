@@ -13,6 +13,8 @@ import com.example.core.download.DownloadStatus
 import com.example.core.download.SongDownload
 import com.example.core.download.downloadFileName
 import com.example.core.model.*
+import com.example.core.recommendation.ListeningHistoryRepository
+import com.example.core.recommendation.TrackPreferenceRepository
 import com.example.playback.PlaybackController
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -44,7 +46,12 @@ class DownloadedScreenRegressionTest {
 
     @Before fun setup() {
         context = ApplicationProvider.getApplicationContext()
-        listOf("song-downloads.json", "downloaded-playlists.json").forEach { name ->
+        listOf(
+            "song-downloads.json",
+            "downloaded-playlists.json",
+            "aura-track-preferences.json",
+            "aura-listening-history.json"
+        ).forEach { name ->
             listOf("", ".bak", ".new").forEach { suffix -> File(context.noBackupFilesDir, name + suffix).delete() }
         }
     }
@@ -64,13 +71,19 @@ class DownloadedScreenRegressionTest {
         }
         val repository = DownloadRepository(context).also { downloads = it }
         runBlocking { repository.awaitLocalUri(song.id) }
-        val vm = LibraryViewModel(TestMusic(), player, repository)
+        val vm = LibraryViewModel(
+            TestMusic(),
+            player,
+            repository,
+            TrackPreferenceRepository(context),
+            ListeningHistoryRepository(context)
+        )
         compose.setContent { MaterialTheme { LibraryScreen(viewModel = vm) } }
     }
 
     @Test fun openingDownloadedFromLibraryDoesNotCrash() {
         show()
-        compose.onNodeWithTag("shortcut_downloaded").performClick()
+        compose.onNodeWithTag("library_tab_2").performClick()
         compose.onNodeWithTag("downloads_all_songs").assertExists()
         compose.onNodeWithTag("downloads_playlists").performClick()
         compose.onNodeWithTag("downloads_create_playlist").assertExists()
@@ -79,21 +92,21 @@ class DownloadedScreenRegressionTest {
     @Test fun switchAwayAndReopenDownloadedRepeatedly() {
         show()
         repeat(4) {
-            compose.onNodeWithTag("shortcut_downloaded").performClick()
+            compose.onNodeWithTag("library_tab_2").performClick()
             compose.onNodeWithTag("downloads_all_songs").assertExists()
-            compose.onNodeWithTag("shortcut_liked").performClick()
+            compose.onNodeWithTag("library_tab_1").performClick()
             compose.onNodeWithTag("downloads_all_songs").assertDoesNotExist()
         }
-        compose.onNodeWithTag("shortcut_downloaded").performClick()
-        compose.onNodeWithTag("library_tab_1").performClick()
+        compose.onNodeWithTag("library_tab_2").performClick()
+        compose.onNodeWithTag("library_tab_3").performClick()
         compose.onNodeWithTag("downloads_all_songs").assertDoesNotExist()
-        compose.onNodeWithTag("shortcut_downloaded").performClick()
+        compose.onNodeWithTag("library_tab_2").performClick()
         compose.onNodeWithTag("downloads_all_songs").assertExists()
     }
 
     @Test fun downloadedSongCanBeAddedAndOpenedInPlaylistFromFullScreen() {
         show(withSong = true)
-        compose.onNodeWithTag("shortcut_downloaded").performClick()
+        compose.onNodeWithTag("library_tab_2").performClick()
         compose.onNodeWithTag("library_screen").performScrollToNode(hasTestTag("downloaded_song_options_${song.id}"))
         compose.waitUntil(10_000) { downloads!!.offlinePlaylists.playlists.value.isEmpty() }
         compose.onNodeWithTag("downloaded_song_options_${song.id}").performClick()
