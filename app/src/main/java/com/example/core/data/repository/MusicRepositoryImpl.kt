@@ -7,26 +7,24 @@ import com.example.core.model.Artist
 import com.example.core.model.Playlist
 import com.example.core.model.Track
 import com.example.core.network.MusicSource
+import com.example.core.recommendation.TrackPreferenceRepository
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 
 class MusicRepositoryImpl(
-    private val musicSource: MusicSource
+    private val musicSource: MusicSource,
+    private val preferenceRepository: TrackPreferenceRepository
 ) : MusicRepository {
-
-    private val favoritesMap = MutableStateFlow<Map<String, Track>>(emptyMap())
 
     override fun getFeaturedTracks(): Flow<Resource<List<Track>>> = flow {
         emit(Resource.Loading)
         when (val result = musicSource.getFeaturedTracks()) {
             is Resource.Success -> {
-                val currentFavorites = favoritesMap.value
-                val updated = result.data.map { track ->
-                    track.copy(isFavorite = currentFavorites.containsKey(track.id))
-                }
+                val prefs = preferenceRepository.state.value
+                val updated = result.data
+                    .filterNot { prefs.disliked.containsKey(it.id) }
+                    .map { track -> track.copy(isFavorite = prefs.liked.containsKey(track.id)) }
                 emit(Resource.Success(updated))
             }
             is Resource.Error -> emit(result)
@@ -38,10 +36,10 @@ class MusicRepositoryImpl(
         emit(Resource.Loading)
         when (val result = musicSource.getTrendingTracks()) {
             is Resource.Success -> {
-                val currentFavorites = favoritesMap.value
-                val updated = result.data.map { track ->
-                    track.copy(isFavorite = currentFavorites.containsKey(track.id))
-                }
+                val prefs = preferenceRepository.state.value
+                val updated = result.data
+                    .filterNot { prefs.disliked.containsKey(it.id) }
+                    .map { track -> track.copy(isFavorite = prefs.liked.containsKey(track.id)) }
                 emit(Resource.Success(updated))
             }
             is Resource.Error -> emit(result)
@@ -62,29 +60,25 @@ class MusicRepositoryImpl(
     override suspend fun search(query: String): Resource<List<Track>> {
         val result = musicSource.search(query)
         return if (result is Resource.Success) {
-            val currentFavorites = favoritesMap.value
-            Resource.Success(result.data.map { it.copy(isFavorite = currentFavorites.containsKey(it.id)) })
+            val liked = preferenceRepository.state.value.liked
+            Resource.Success(result.data.map { it.copy(isFavorite = liked.containsKey(it.id)) })
         } else {
             result
         }
     }
 
     override fun getFavoriteTracks(): Flow<List<Track>> {
-        return favoritesMap.asStateFlow().map { it.values.toList() }
+        return preferenceRepository.state.map { prefs ->
+            prefs.liked.values.map { it.copy(isFavorite = true) }
+        }
     }
 
     override suspend fun toggleFavorite(track: Track) {
-        val current = favoritesMap.value.toMutableMap()
-        if (current.containsKey(track.id)) {
-            current.remove(track.id)
-        } else {
-            current[track.id] = track.copy(isFavorite = true)
-        }
-        favoritesMap.value = current
+        preferenceRepository.toggleLike(track)
     }
 
     override suspend fun isFavorite(trackId: String): Boolean {
-        return favoritesMap.value.containsKey(trackId)
+        return preferenceRepository.isLiked(trackId)
     }
 
     override suspend fun getAlbum(albumId: String): Resource<Album> {
