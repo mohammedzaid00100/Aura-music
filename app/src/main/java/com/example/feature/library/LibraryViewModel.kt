@@ -3,30 +3,49 @@ package com.example.feature.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.core.download.DownloadRepository
 import com.example.core.common.Resource
 import com.example.core.domain.repository.MusicRepository
+import com.example.core.download.DownloadRepository
 import com.example.core.model.Playlist
 import com.example.core.model.Track
+import com.example.core.recommendation.ListeningHistoryRepository
+import com.example.core.recommendation.TrackPreferenceRepository
 import com.example.playback.PlaybackController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class LibraryViewModel(
     private val musicRepository: MusicRepository,
     private val playbackController: PlaybackController,
-    val downloadRepository: DownloadRepository
+    val downloadRepository: DownloadRepository,
+    private val trackPreferenceRepository: TrackPreferenceRepository,
+    private val listeningHistoryRepository: ListeningHistoryRepository
 ) : ViewModel() {
 
     private val _selectedTab = MutableStateFlow(0)
     val selectedTab: StateFlow<Int> = _selectedTab.asStateFlow()
 
-    val favoriteTracks: StateFlow<List<Track>> = musicRepository.getFavoriteTracks()
+    val favoriteTracks: StateFlow<List<Track>> = trackPreferenceRepository.state
+        .map { it.liked.values.toList().asReversed() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val recentTracks: StateFlow<List<Track>> = combine(
+        listeningHistoryRepository.stats,
+        trackPreferenceRepository.state
+    ) { stats, preferences ->
+        stats.values
+            .filterNot { preferences.disliked.containsKey(it.track.id) }
+            .sortedByDescending { it.lastPlayedAt }
+            .map { it.track.copy(isFavorite = preferences.liked.containsKey(it.track.id)) }
+            .distinctBy { it.id }
+            .take(50)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val playlists: StateFlow<Resource<List<Playlist>>> = musicRepository.getRecommendedPlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
@@ -53,7 +72,7 @@ class LibraryViewModel(
 
     fun toggleFavorite(track: Track) {
         viewModelScope.launch {
-            musicRepository.toggleFavorite(track)
+            trackPreferenceRepository.toggleLike(track)
         }
     }
 
@@ -61,11 +80,19 @@ class LibraryViewModel(
         fun provideFactory(
             repository: MusicRepository,
             playbackController: PlaybackController,
-            downloadRepository: DownloadRepository
+            downloadRepository: DownloadRepository,
+            trackPreferenceRepository: TrackPreferenceRepository,
+            listeningHistoryRepository: ListeningHistoryRepository
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return LibraryViewModel(repository, playbackController, downloadRepository) as T
+                return LibraryViewModel(
+                    musicRepository = repository,
+                    playbackController = playbackController,
+                    downloadRepository = downloadRepository,
+                    trackPreferenceRepository = trackPreferenceRepository,
+                    listeningHistoryRepository = listeningHistoryRepository
+                ) as T
             }
         }
     }
