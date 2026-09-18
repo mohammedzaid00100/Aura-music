@@ -89,10 +89,17 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
                     .distinctUntilChanged()
                     .collect { hasActiveTrack ->
                         if (hasActiveTrack) {
-                            ContextCompat.startForegroundService(
-                                context.applicationContext,
-                                Intent(context.applicationContext, AuraPlaybackNotificationService::class.java)
-                            )
+                            // Media notification startup is useful, but it must never be able
+                            // to crash the player/app on an OEM that temporarily rejects an FGS.
+                            runCatching {
+                                ContextCompat.startForegroundService(
+                                    context.applicationContext,
+                                    Intent(
+                                        context.applicationContext,
+                                        AuraPlaybackNotificationService::class.java
+                                    )
+                                )
+                            }
                         }
                     }
             }
