@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.auramusic.kznrpx"
     minSdk = 24
     targetSdk = 36
-    versionCode = 14
-    versionName = "1.1.12"
+    versionCode = 15
+    versionName = "1.2.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -63,8 +63,6 @@ android {
   }
 }
 
-// Configure the Secrets Gradle Plugin to use .env and .env.example files
-// to match the convention used in Web projects.
 secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
@@ -73,8 +71,6 @@ secrets {
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
-// Some unused dependencies are commented out below instead of being removed.
-// This makes it easy to add them back in the future if needed.
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
@@ -104,11 +100,7 @@ dependencies {
   implementation(libs.androidx.media3.ui)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
-  // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
-
-  // Uncomment ALL FOUR of the following dependencies together to use Firebase Auth and Google
-  // Sign-In via Credential Manager:
   // implementation(libs.firebase.auth)
   // implementation(libs.androidx.credentials)
   // implementation(libs.androidx.credentials.play.services)
