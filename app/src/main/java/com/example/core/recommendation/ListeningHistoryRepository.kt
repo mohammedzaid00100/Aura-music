@@ -80,7 +80,7 @@ class ListeningHistoryRepository(context: Context) {
             } else {
                 15_000L
             }
-            val skipped = !completed && safeListened in 1 until skipThreshold
+            val skipped = !completed && safeListened in 1L until skipThreshold
 
             val updated = previous.copy(
                 completedCount = previous.completedCount + if (completed) 1 else 0,
@@ -123,7 +123,7 @@ class ListeningHistoryRepository(context: Context) {
         root.put("version", 1)
         root.put("entries", entries)
 
-        var output = file.startWrite()
+        val output = file.startWrite()
         return try {
             output.write(root.toString().toByteArray(StandardCharsets.UTF_8))
             output.flush()
