@@ -79,7 +79,6 @@ fun AuraApp(
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.navigationBars)
             ) {
-                // Mini Player docked right above bottom navigation
                 AnimatedVisibility(
                     visible = playbackState.currentTrack != null && !isPlayerExpanded,
                     enter = slideInVertically { it } + fadeIn(),
@@ -93,7 +92,6 @@ fun AuraApp(
                     )
                 }
 
-                // Floating Bottom Navigation Bar
                 FloatingNavBar(
                     currentRoute = currentRoute,
                     onNavigate = { route ->
@@ -126,7 +124,9 @@ fun AuraApp(
                     val homeViewModel: HomeViewModel = viewModel(
                         factory = HomeViewModel.provideFactory(
                             appContainer.musicRepository,
-                            appContainer.playbackController
+                            appContainer.playbackController,
+                            appContainer.listeningHistoryRepository,
+                            appContainer.recommendationEngine
                         )
                     )
                     HomeScreen(viewModel = homeViewModel)
@@ -163,7 +163,6 @@ fun AuraApp(
         }
     }
 
-    // Full Player Full-Screen Animated Modal
     AnimatedVisibility(
         visible = isPlayerExpanded,
         enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -198,7 +197,6 @@ fun AuraApp(
         )
     }
 
-    // Lyrics Overlay Sheet
     AnimatedVisibility(
         visible = isLyricsOpen && playbackState.currentTrack != null,
         enter = slideInVertically { it } + fadeIn(),
@@ -215,7 +213,6 @@ fun AuraApp(
         }
     }
 
-    // Queue Overlay Sheet
     AnimatedVisibility(
         visible = isQueueOpen,
         enter = slideInVertically { it } + fadeIn(),
