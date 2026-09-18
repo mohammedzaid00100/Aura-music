@@ -96,6 +96,11 @@ class AuraPlaybackNotificationService : Service() {
                         foregroundStarted = false
                     }
                     notificationManager.cancel(NOTIFICATION_ID)
+
+                    // The service exists only for an active playback session. Keeping an
+                    // idle START_STICKY service alive lets some OEMs resurrect Aura's
+                    // process later and can crash a subsequent launcher start.
+                    stopSelf()
                     return@collectLatest
                 }
 
@@ -124,7 +129,10 @@ class AuraPlaybackNotificationService : Service() {
             ACTION_TOGGLE -> controller.togglePlayPause()
             ACTION_NEXT -> controller.skipToNext()
         }
-        return START_STICKY
+
+        // Do not let Android recreate this service after Aura's process is killed.
+        // A fresh service is started again automatically when playback becomes active.
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
