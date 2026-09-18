@@ -41,7 +41,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -78,7 +77,10 @@ fun LibraryScreen(
     val downloadEntries = downloads.values.sortedByDescending { it.addedAt }
     val downloadedCount = downloads.values.count { it.status == DownloadStatus.COMPLETE }
 
-    val downloadedState = if (selectedTabIndex == 2) rememberDownloadedLibraryState(viewModel) else null
+    // Snapshot the selected tab for this composition. LazyColumn builds its item list later,
+    // so it must not observe a newer tab value paired with an older nullable Downloaded state.
+    val activeTab = selectedTabIndex
+    val downloadedState = if (activeTab == 2) rememberDownloadedLibraryState(viewModel) else null
     downloadedState?.let { DownloadedPlaylistDialogs(it) }
 
     LazyColumn(
@@ -105,7 +107,7 @@ fun LibraryScreen(
         item {
             LibraryFilterChips(
                 tabs = LibraryTabs,
-                selectedIndex = selectedTabIndex,
+                selectedIndex = activeTab,
                 onSelectTab = viewModel::setTab
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -119,7 +121,7 @@ fun LibraryScreen(
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        when (selectedTabIndex) {
+        when (activeTab) {
             0 -> {
                 item { SectionHeader("Playlists") }
                 when (val state = playlistsResource) {
@@ -162,13 +164,15 @@ fun LibraryScreen(
                 }
             }
             2 -> {
-                downloadedContent(
-                    state = requireNotNull(downloadedState),
-                    entries = downloadEntries,
-                    isAscending = isAscending,
-                    playback = playbackState,
-                    viewModel = viewModel
-                )
+                downloadedState?.let { state ->
+                    downloadedContent(
+                        state = state,
+                        entries = downloadEntries,
+                        isAscending = isAscending,
+                        playback = playbackState,
+                        viewModel = viewModel
+                    )
+                }
             }
             3 -> {
                 item { SectionHeader("Recently Played") }
