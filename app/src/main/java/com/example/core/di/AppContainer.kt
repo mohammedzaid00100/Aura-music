@@ -13,6 +13,7 @@ import com.example.core.network.innertube.InnertubeMusicSource
 import com.example.core.recommendation.ListeningHistoryRepository
 import com.example.core.recommendation.ListeningHistoryTracker
 import com.example.core.recommendation.LocalRecommendationEngine
+import com.example.core.recommendation.TrackPreferenceRepository
 import com.example.playback.AuraPlaybackNotificationService
 import com.example.playback.PlaybackController
 import com.example.playback.PlaybackControllerImpl
@@ -30,6 +31,7 @@ interface AppContainer {
     val musicRepository: MusicRepository
     val lyricsRepository: LyricsRepository
     val listeningHistoryRepository: ListeningHistoryRepository
+    val trackPreferenceRepository: TrackPreferenceRepository
     val recommendationEngine: LocalRecommendationEngine
     val playbackController: PlaybackController
 }
@@ -43,8 +45,15 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         InnertubeMusicSource()
     }
 
+    override val trackPreferenceRepository by lazy {
+        TrackPreferenceRepository(context.applicationContext)
+    }
+
     override val musicRepository: MusicRepository by lazy {
-        MusicRepositoryImpl(musicSource)
+        MusicRepositoryImpl(
+            musicSource = musicSource,
+            preferenceRepository = trackPreferenceRepository
+        )
     }
 
     override val lyricsRepository: LyricsRepository by lazy {
@@ -58,7 +67,8 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
     override val recommendationEngine by lazy {
         LocalRecommendationEngine(
             musicRepository = musicRepository,
-            historyRepository = listeningHistoryRepository
+            historyRepository = listeningHistoryRepository,
+            preferenceRepository = trackPreferenceRepository
         )
     }
 
