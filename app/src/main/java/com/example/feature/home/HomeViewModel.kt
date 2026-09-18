@@ -42,6 +42,10 @@ class HomeViewModel(
     private val _recommendationSeedTitle = MutableStateFlow<String?>(null)
     val recommendationSeedTitle: StateFlow<String?> = _recommendationSeedTitle.asStateFlow()
 
+    val likedTracks: StateFlow<List<Track>> = trackPreferenceRepository.state
+        .map { preferences -> preferences.liked.values.toList().asReversed() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val recentTracks: StateFlow<List<Track>> = combine(
         listeningHistoryRepository.stats,
         trackPreferenceRepository.state
@@ -54,10 +58,6 @@ class HomeViewModel(
             .take(12)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /**
-     * Recommended For You is personalized as soon as Aura has enough local signals.
-     * Explicit dislikes are filtered immediately, even before the next search refresh returns.
-     */
     val featuredTracks: StateFlow<Resource<List<Track>>> = combine(
         baseFeaturedTracks,
         personalizedTracks,
@@ -78,7 +78,6 @@ class HomeViewModel(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
 
-    /** KEEP LISTENING starts with recent, non-disliked listening and then explicit likes. */
     val favoriteTracks: StateFlow<List<Track>> = combine(
         recentTracks,
         baseFavoriteTracks,
