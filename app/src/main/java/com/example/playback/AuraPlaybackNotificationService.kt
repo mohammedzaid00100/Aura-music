@@ -6,13 +6,20 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import com.example.AuraApplication
 import com.example.MainActivity
+import com.example.core.model.Track
+import com.example.core.util.ArtworkUtils
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,14 +27,16 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * Keeps Aura playback visible in Android's notification shade and routes
- * system media controls back to the same PlaybackController used by the app UI.
+ * Publishes Aura playback to Android system media controls.
  *
- * The service stays silent until Aura has an active track. Once a track exists,
- * it becomes a media-playback foreground service with Previous / Play-Pause / Next
- * controls and remains available while that track is active, including while paused.
+ * Android/HyperOS gets:
+ * - real position + total duration for an interactive seek timeline
+ * - Previous / Play-Pause / Next / Seek actions
+ * - title, artist, album and artwork
+ * - the same PlaybackController used by the in-app player
  */
 class AuraPlaybackNotificationService : Service() {
 
@@ -35,8 +44,14 @@ class AuraPlaybackNotificationService : Service() {
     private lateinit var controller: PlaybackController
     private lateinit var notificationManager: NotificationManager
     private lateinit var systemMediaSession: MediaSession
+
     private var observeJob: Job? = null
+    private var artworkJob: Job? = null
     private var foregroundStarted = false
+
+    private var currentArtworkUrl: String = ""
+    private var currentArtwork: Bitmap? = null
+    private var lastNotificationKey: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -51,7 +66,17 @@ class AuraPlaybackNotificationService : Service() {
                 override fun onPause() = this@AuraPlaybackNotificationService.controller.pause()
                 override fun onSkipToNext() = this@AuraPlaybackNotificationService.controller.skipToNext()
                 override fun onSkipToPrevious() = this@AuraPlaybackNotificationService.controller.skipToPrevious()
-                override fun onSeekTo(pos: Long) = this@AuraPlaybackNotificationService.controller.seekTo(pos)
+
+                override fun onSeekTo(pos: Long) {
+                    val duration = this@AuraPlaybackNotificationService
+                        .controller
+                        .playbackState
+                        .value
+                        .durationMs
+
+                    val target = if (duration > 0L) pos.coerceIn(0L, duration) else pos.coerceAtLeast(0L)
+                    this@AuraPlaybackNotificationService.controller.seekTo(target)
+                }
             })
             isActive = true
         }
@@ -61,6 +86,11 @@ class AuraPlaybackNotificationService : Service() {
                 val track = state.currentTrack
 
                 if (track == null) {
+                    artworkJob?.cancel()
+                    currentArtworkUrl = ""
+                    currentArtwork = null
+                    lastNotificationKey = null
+
                     if (foregroundStarted) {
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         foregroundStarted = false
@@ -69,25 +99,21 @@ class AuraPlaybackNotificationService : Service() {
                     return@collectLatest
                 }
 
-                updateMediaSession(
+                ensureArtwork(track)
+
+                val durationMs = when {
+                    state.durationMs > 0L -> state.durationMs
+                    track.durationMs > 0L -> track.durationMs
+                    else -> 0L
+                }
+
+                publishSystemState(
+                    track = track,
                     isPlaying = state.isPlaying,
                     positionMs = state.positionMs,
-                    title = track.title,
-                    artist = track.artist
+                    durationMs = durationMs,
+                    artwork = currentArtwork
                 )
-
-                val notification = buildNotification(
-                    title = track.title,
-                    artist = track.artist,
-                    isPlaying = state.isPlaying
-                )
-
-                if (!foregroundStarted) {
-                    startForeground(NOTIFICATION_ID, notification)
-                    foregroundStarted = true
-                } else {
-                    notificationManager.notify(NOTIFICATION_ID, notification)
-                }
             }
         }
     }
@@ -105,6 +131,7 @@ class AuraPlaybackNotificationService : Service() {
 
     override fun onDestroy() {
         observeJob?.cancel()
+        artworkJob?.cancel()
         serviceScope.cancel()
 
         systemMediaSession.isActive = false
@@ -118,11 +145,68 @@ class AuraPlaybackNotificationService : Service() {
         super.onDestroy()
     }
 
-    private fun updateMediaSession(
+    private fun publishSystemState(
+        track: Track,
         isPlaying: Boolean,
         positionMs: Long,
-        title: String,
-        artist: String
+        durationMs: Long,
+        artwork: Bitmap?
+    ) {
+        val boundedPosition = if (durationMs > 0L) {
+            positionMs.coerceIn(0L, durationMs)
+        } else {
+            positionMs.coerceAtLeast(0L)
+        }
+
+        updateMediaSession(
+            track = track,
+            isPlaying = isPlaying,
+            positionMs = boundedPosition,
+            durationMs = durationMs,
+            artwork = artwork
+        )
+
+        // The MediaSession drives the live timeline, so the notification itself only
+        // needs rebuilding when its visible controls/content changes.
+        val notificationKey = buildString {
+            append(track.id)
+            append('|')
+            append(isPlaying)
+            append('|')
+            append(track.title)
+            append('|')
+            append(track.artist)
+            append('|')
+            append(currentArtworkUrl)
+            append('|')
+            append(artwork != null)
+        }
+
+        if (!foregroundStarted || notificationKey != lastNotificationKey) {
+            val notification = buildNotification(
+                title = track.title,
+                artist = track.artist,
+                isPlaying = isPlaying,
+                artwork = artwork
+            )
+
+            if (!foregroundStarted) {
+                startForeground(NOTIFICATION_ID, notification)
+                foregroundStarted = true
+            } else {
+                notificationManager.notify(NOTIFICATION_ID, notification)
+            }
+
+            lastNotificationKey = notificationKey
+        }
+    }
+
+    private fun updateMediaSession(
+        track: Track,
+        isPlaying: Boolean,
+        positionMs: Long,
+        durationMs: Long,
+        artwork: Bitmap?
     ) {
         val actions = PlaybackState.ACTION_PLAY or
             PlaybackState.ACTION_PAUSE or
@@ -137,23 +221,36 @@ class AuraPlaybackNotificationService : Service() {
                 .setState(
                     if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
                     positionMs,
-                    if (isPlaying) 1f else 0f
+                    if (isPlaying) 1f else 0f,
+                    SystemClock.elapsedRealtime()
                 )
                 .build()
         )
 
-        systemMediaSession.setMetadata(
-            MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, title)
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
-                .build()
-        )
+        val metadata = MediaMetadata.Builder()
+            .putString(MediaMetadata.METADATA_KEY_TITLE, track.title)
+            .putString(MediaMetadata.METADATA_KEY_ARTIST, track.artist)
+            .putString(MediaMetadata.METADATA_KEY_ALBUM, track.album ?: track.title)
+            .putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs)
+
+        if (currentArtworkUrl.isNotBlank()) {
+            metadata.putString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI, currentArtworkUrl)
+            metadata.putString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI, currentArtworkUrl)
+        }
+
+        if (artwork != null) {
+            metadata.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, artwork)
+            metadata.putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, artwork)
+        }
+
+        systemMediaSession.setMetadata(metadata.build())
     }
 
     private fun buildNotification(
         title: String,
         artist: String,
-        isPlaying: Boolean
+        isPlaying: Boolean,
+        artwork: Bitmap?
     ): Notification {
         val openAppIntent = PendingIntent.getActivity(
             this,
@@ -177,6 +274,7 @@ class AuraPlaybackNotificationService : Service() {
 
         return builder
             .setSmallIcon(android.R.drawable.ic_media_play)
+            .setLargeIcon(artwork)
             .setContentTitle(title.ifBlank { "Aura Music" })
             .setContentText(artist.ifBlank { "Playing" })
             .setContentIntent(openAppIntent)
@@ -214,6 +312,79 @@ class AuraPlaybackNotificationService : Service() {
             .build()
     }
 
+    private fun ensureArtwork(track: Track) {
+        val wantedUrl = ArtworkUtils.getHighResArtworkUrl(track.artworkUrl)
+        if (wantedUrl == currentArtworkUrl) return
+
+        artworkJob?.cancel()
+        currentArtworkUrl = wantedUrl
+        currentArtwork = null
+        lastNotificationKey = null
+
+        if (wantedUrl.isBlank()) return
+
+        artworkJob = serviceScope.launch(Dispatchers.IO) {
+            val loaded = loadArtworkBitmap(wantedUrl)
+
+            withContext(Dispatchers.Main.immediate) {
+                if (wantedUrl != currentArtworkUrl) return@withContext
+
+                currentArtwork = loaded
+
+                val state = controller.playbackState.value
+                val activeTrack = state.currentTrack
+                if (activeTrack != null && ArtworkUtils.getHighResArtworkUrl(activeTrack.artworkUrl) == wantedUrl) {
+                    val durationMs = when {
+                        state.durationMs > 0L -> state.durationMs
+                        activeTrack.durationMs > 0L -> activeTrack.durationMs
+                        else -> 0L
+                    }
+
+                    publishSystemState(
+                        track = activeTrack,
+                        isPlaying = state.isPlaying,
+                        positionMs = state.positionMs,
+                        durationMs = durationMs,
+                        artwork = loaded
+                    )
+                }
+            }
+        }
+    }
+
+    private fun loadArtworkBitmap(url: String): Bitmap? {
+        return try {
+            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 8_000
+                readTimeout = 8_000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "Mozilla/5.0")
+            }
+
+            try {
+                connection.inputStream.use { stream ->
+                    val decoded = BitmapFactory.decodeStream(stream) ?: return null
+                    scaleForNotification(decoded)
+                }
+            } finally {
+                connection.disconnect()
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun scaleForNotification(bitmap: Bitmap): Bitmap {
+        val maxSide = maxOf(bitmap.width, bitmap.height)
+        if (maxSide <= MAX_ARTWORK_SIDE_PX) return bitmap
+
+        val scale = MAX_ARTWORK_SIDE_PX.toFloat() / maxSide.toFloat()
+        val width = (bitmap.width * scale).toInt().coerceAtLeast(1)
+        val height = (bitmap.height * scale).toInt().coerceAtLeast(1)
+
+        return Bitmap.createScaledBitmap(bitmap, width, height, true)
+    }
+
     private fun servicePendingIntent(action: String, requestCode: Int): PendingIntent {
         return PendingIntent.getService(
             this,
@@ -240,6 +411,7 @@ class AuraPlaybackNotificationService : Service() {
     companion object {
         private const val CHANNEL_ID = "aura_playback"
         private const val NOTIFICATION_ID = 1107
+        private const val MAX_ARTWORK_SIDE_PX = 512
 
         private const val ACTION_PREVIOUS = "com.example.aura.action.PREVIOUS"
         private const val ACTION_TOGGLE = "com.example.aura.action.TOGGLE"
