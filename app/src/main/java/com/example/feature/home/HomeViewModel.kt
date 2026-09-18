@@ -10,6 +10,7 @@ import com.example.core.model.Playlist
 import com.example.core.model.Track
 import com.example.core.recommendation.ListeningHistoryRepository
 import com.example.core.recommendation.LocalRecommendationEngine
+import com.example.core.recommendation.TrackPreferenceRepository
 import com.example.playback.PlaybackController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,6 +26,7 @@ class HomeViewModel(
     private val musicRepository: MusicRepository,
     private val playbackController: PlaybackController,
     private val listeningHistoryRepository: ListeningHistoryRepository,
+    private val trackPreferenceRepository: TrackPreferenceRepository,
     private val recommendationEngine: LocalRecommendationEngine
 ) : ViewModel() {
 
@@ -40,41 +42,68 @@ class HomeViewModel(
     private val _recommendationSeedTitle = MutableStateFlow<String?>(null)
     val recommendationSeedTitle: StateFlow<String?> = _recommendationSeedTitle.asStateFlow()
 
-    val recentTracks: StateFlow<List<Track>> = listeningHistoryRepository.stats
-        .map { stats ->
-            stats.values
-                .sortedByDescending { it.lastPlayedAt }
-                .map { it.track }
-                .distinctBy { it.id }
-                .take(12)
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listeningHistoryRepository.recentTracks())
+    val recentTracks: StateFlow<List<Track>> = combine(
+        listeningHistoryRepository.stats,
+        trackPreferenceRepository.state
+    ) { stats, preferences ->
+        stats.values
+            .filterNot { preferences.disliked.containsKey(it.track.id) }
+            .sortedByDescending { it.lastPlayedAt }
+            .map { stat -> stat.track.copy(isFavorite = preferences.liked.containsKey(stat.track.id)) }
+            .distinctBy { it.id }
+            .take(12)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
-     * HomeScreen already renders this flow as "Recommended For You". Once Aura has local
-     * listening history we transparently replace generic featured results with the local
-     * recommendation engine output. Cold-start users still get the existing featured list.
+     * Recommended For You is personalized as soon as Aura has enough local signals.
+     * Explicit dislikes are filtered immediately, even before the next search refresh returns.
      */
     val featuredTracks: StateFlow<Resource<List<Track>>> = combine(
         baseFeaturedTracks,
-        personalizedTracks
-    ) { fallback, personalized ->
-        when (personalized) {
+        personalizedTracks,
+        trackPreferenceRepository.state
+    ) { fallback, personalized, preferences ->
+        val chosen = when (personalized) {
             is Resource.Success -> if (personalized.data.isNotEmpty()) personalized else fallback
             else -> fallback
         }
+
+        when (chosen) {
+            is Resource.Success -> Resource.Success(
+                chosen.data
+                    .filterNot { preferences.disliked.containsKey(it.id) }
+                    .map { it.copy(isFavorite = preferences.liked.containsKey(it.id)) }
+            )
+            else -> chosen
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
 
-    /** The existing KEEP LISTENING row now starts with real recent listening history. */
+    /** KEEP LISTENING starts with recent, non-disliked listening and then explicit likes. */
     val favoriteTracks: StateFlow<List<Track>> = combine(
         recentTracks,
-        baseFavoriteTracks
-    ) { recent, favorites ->
-        (recent + favorites).distinctBy { it.id }.take(16)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listeningHistoryRepository.recentTracks())
+        baseFavoriteTracks,
+        trackPreferenceRepository.state
+    ) { recent, favorites, preferences ->
+        (recent + favorites)
+            .filterNot { preferences.disliked.containsKey(it.id) }
+            .map { it.copy(isFavorite = preferences.liked.containsKey(it.id)) }
+            .distinctBy { it.id }
+            .take(16)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val trendingTracks: StateFlow<Resource<List<Track>>> = musicRepository.getTrendingTracks()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
+    val trendingTracks: StateFlow<Resource<List<Track>>> = combine(
+        musicRepository.getTrendingTracks(),
+        trackPreferenceRepository.state
+    ) { resource, preferences ->
+        when (resource) {
+            is Resource.Success -> Resource.Success(
+                resource.data
+                    .filterNot { preferences.disliked.containsKey(it.id) }
+                    .map { it.copy(isFavorite = preferences.liked.containsKey(it.id)) }
+            )
+            else -> resource
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
 
     val recommendedPlaylists: StateFlow<Resource<List<Playlist>>> = musicRepository.getRecommendedPlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
@@ -87,30 +116,33 @@ class HomeViewModel(
 
     init {
         viewModelScope.launch {
-            listeningHistoryRepository.stats.collectLatest { stats ->
-                if (stats.isEmpty()) {
-                    _personalizedTracks.value = Resource.Idle
-                    _recommendationSeedTitle.value = null
-                    return@collectLatest
-                }
-
-                _personalizedTracks.value = Resource.Loading
-                try {
-                    val result = recommendationEngine.build()
-                    _recommendationSeedTitle.value = result.seedTitle
-                    _personalizedTracks.value = if (result.tracks.isNotEmpty()) {
-                        Resource.Success(result.tracks)
-                    } else {
-                        Resource.Idle
+            combine(
+                listeningHistoryRepository.stats,
+                trackPreferenceRepository.state
+            ) { history, preferences -> history to preferences }
+                .collectLatest { (history, preferences) ->
+                    if (history.isEmpty() && preferences.liked.isEmpty()) {
+                        _personalizedTracks.value = Resource.Idle
+                        _recommendationSeedTitle.value = null
+                        return@collectLatest
                     }
-                } catch (e: Exception) {
-                    // Keep Home usable with the original featured feed if recommendation refresh fails.
-                    _personalizedTracks.value = Resource.Error(
-                        message = e.localizedMessage ?: "Could not refresh recommendations",
-                        throwable = e
-                    )
+
+                    _personalizedTracks.value = Resource.Loading
+                    try {
+                        val result = recommendationEngine.build()
+                        _recommendationSeedTitle.value = result.seedTitle
+                        _personalizedTracks.value = if (result.tracks.isNotEmpty()) {
+                            Resource.Success(result.tracks)
+                        } else {
+                            Resource.Idle
+                        }
+                    } catch (e: Exception) {
+                        _personalizedTracks.value = Resource.Error(
+                            message = e.localizedMessage ?: "Could not refresh recommendations",
+                            throwable = e
+                        )
+                    }
                 }
-            }
         }
     }
 
@@ -125,9 +157,7 @@ class HomeViewModel(
     }
 
     fun toggleFavorite(track: Track) {
-        viewModelScope.launch {
-            musicRepository.toggleFavorite(track)
-        }
+        viewModelScope.launch { musicRepository.toggleFavorite(track) }
     }
 
     companion object {
@@ -135,6 +165,7 @@ class HomeViewModel(
             repository: MusicRepository,
             playbackController: PlaybackController,
             listeningHistoryRepository: ListeningHistoryRepository,
+            trackPreferenceRepository: TrackPreferenceRepository,
             recommendationEngine: LocalRecommendationEngine
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -143,6 +174,7 @@ class HomeViewModel(
                     musicRepository = repository,
                     playbackController = playbackController,
                     listeningHistoryRepository = listeningHistoryRepository,
+                    trackPreferenceRepository = trackPreferenceRepository,
                     recommendationEngine = recommendationEngine
                 ) as T
             }
