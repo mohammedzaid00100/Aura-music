@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -27,20 +28,17 @@ class HomeViewModel(
     private val recommendationEngine: LocalRecommendationEngine
 ) : ViewModel() {
 
-    val featuredTracks: StateFlow<Resource<List<Track>>> = musicRepository.getFeaturedTracks()
+    private val baseFeaturedTracks: StateFlow<Resource<List<Track>>> = musicRepository.getFeaturedTracks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
 
-    val trendingTracks: StateFlow<Resource<List<Track>>> = musicRepository.getTrendingTracks()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
-
-    val recommendedPlaylists: StateFlow<Resource<List<Playlist>>> = musicRepository.getRecommendedPlaylists()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
-
-    val topArtists: StateFlow<Resource<List<Artist>>> = musicRepository.getTopArtists()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
-
-    val favoriteTracks: StateFlow<List<Track>> = musicRepository.getFavoriteTracks()
+    private val baseFavoriteTracks: StateFlow<List<Track>> = musicRepository.getFavoriteTracks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _personalizedTracks = MutableStateFlow<Resource<List<Track>>>(Resource.Idle)
+    val personalizedTracks: StateFlow<Resource<List<Track>>> = _personalizedTracks.asStateFlow()
+
+    private val _recommendationSeedTitle = MutableStateFlow<String?>(null)
+    val recommendationSeedTitle: StateFlow<String?> = _recommendationSeedTitle.asStateFlow()
 
     val recentTracks: StateFlow<List<Track>> = listeningHistoryRepository.stats
         .map { stats ->
@@ -52,11 +50,37 @@ class HomeViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listeningHistoryRepository.recentTracks())
 
-    private val _personalizedTracks = MutableStateFlow<Resource<List<Track>>>(Resource.Idle)
-    val personalizedTracks: StateFlow<Resource<List<Track>>> = _personalizedTracks.asStateFlow()
+    /**
+     * HomeScreen already renders this flow as "Recommended For You". Once Aura has local
+     * listening history we transparently replace generic featured results with the local
+     * recommendation engine output. Cold-start users still get the existing featured list.
+     */
+    val featuredTracks: StateFlow<Resource<List<Track>>> = combine(
+        baseFeaturedTracks,
+        personalizedTracks
+    ) { fallback, personalized ->
+        when (personalized) {
+            is Resource.Success -> if (personalized.data.isNotEmpty()) personalized else fallback
+            else -> fallback
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
 
-    private val _recommendationSeedTitle = MutableStateFlow<String?>(null)
-    val recommendationSeedTitle: StateFlow<String?> = _recommendationSeedTitle.asStateFlow()
+    /** The existing KEEP LISTENING row now starts with real recent listening history. */
+    val favoriteTracks: StateFlow<List<Track>> = combine(
+        recentTracks,
+        baseFavoriteTracks
+    ) { recent, favorites ->
+        (recent + favorites).distinctBy { it.id }.take(16)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listeningHistoryRepository.recentTracks())
+
+    val trendingTracks: StateFlow<Resource<List<Track>>> = musicRepository.getTrendingTracks()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
+
+    val recommendedPlaylists: StateFlow<Resource<List<Playlist>>> = musicRepository.getRecommendedPlaylists()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
+
+    val topArtists: StateFlow<Resource<List<Artist>>> = musicRepository.getTopArtists()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Resource.Loading)
 
     private val _selectedMood = MutableStateFlow<String?>(null)
     val selectedMood: StateFlow<String?> = _selectedMood.asStateFlow()
@@ -80,6 +104,7 @@ class HomeViewModel(
                         Resource.Idle
                     }
                 } catch (e: Exception) {
+                    // Keep Home usable with the original featured feed if recommendation refresh fails.
                     _personalizedTracks.value = Resource.Error(
                         message = e.localizedMessage ?: "Could not refresh recommendations",
                         throwable = e
