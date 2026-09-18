@@ -15,36 +15,79 @@ data class PersonalizedRecommendations(
 /**
  * One-user recommendation engine.
  *
- * Listening history and scoring stay on-device. The existing MusicRepository is only
- * used to search for candidate songs around the strongest local seeds; the full history
- * is never uploaded anywhere.
+ * Listening history and explicit like/dislike preferences stay on-device. The existing
+ * MusicRepository is only used to search for candidate songs around strong local seeds.
  */
 class LocalRecommendationEngine(
     private val musicRepository: MusicRepository,
-    private val historyRepository: ListeningHistoryRepository
+    private val historyRepository: ListeningHistoryRepository,
+    private val preferenceRepository: TrackPreferenceRepository
 ) {
     suspend fun build(limit: Int = 24): PersonalizedRecommendations {
         val history = historyRepository.stats.value
-        if (history.isEmpty()) return PersonalizedRecommendations(emptyList(), null)
+        val preferences = preferenceRepository.state.value
+
+        if (history.isEmpty() && preferences.liked.isEmpty()) {
+            return PersonalizedRecommendations(emptyList(), null)
+        }
 
         val now = System.currentTimeMillis()
-        val seeds = history.values
-            .sortedByDescending { RecommendationScorer.preferenceScore(it, now) }
+        val dislikedIds = preferences.disliked.keys
+
+        val seedMap = LinkedHashMap<String, ListeningStat>()
+
+        history.values
+            .filterNot { dislikedIds.contains(it.track.id) }
+            .forEach { stat ->
+                seedMap[stat.track.id] = stat.copy(
+                    track = stat.track.copy(isFavorite = preferences.liked.containsKey(stat.track.id))
+                )
+            }
+
+        // A direct Like is intentionally strong enough to become a recommendation seed even
+        // before the user has replayed the song many times.
+        preferences.liked.values.forEach { likedTrack ->
+            val existing = seedMap[likedTrack.id]
+            seedMap[likedTrack.id] = if (existing != null) {
+                existing.copy(track = existing.track.copy(isFavorite = true))
+            } else {
+                ListeningStat(
+                    track = likedTrack.copy(isFavorite = true),
+                    playCount = 1,
+                    completedCount = 1,
+                    lastPlayedAt = now
+                )
+            }
+        }
+
+        val seeds = seedMap.values
+            .sortedByDescending { stat ->
+                RecommendationScorer.preferenceScore(stat, now) +
+                    if (preferences.liked.containsKey(stat.track.id)) EXPLICIT_LIKE_SEED_BONUS else 0.0
+            }
             .take(MAX_SEEDS)
 
         if (seeds.isEmpty()) return PersonalizedRecommendations(emptyList(), null)
 
         val candidates = LinkedHashMap<String, Candidate>()
+        val dislikedTracks = preferences.disliked.values.toList()
 
         seeds.forEachIndexed { seedIndex, seed ->
-            val seedWeight = RecommendationScorer.preferenceScore(seed, now)
-            val queries = buildQueries(seed.track)
+            val isExplicitlyLikedSeed = preferences.liked.containsKey(seed.track.id)
+            val seedWeight = RecommendationScorer.preferenceScore(seed, now) +
+                if (isExplicitlyLikedSeed) EXPLICIT_LIKE_SEED_BONUS else 0.0
 
-            queries.forEach { query ->
+            buildQueries(seed.track).forEach { query ->
                 when (val result = musicRepository.search(query)) {
                     is Resource.Success -> {
-                        result.data.take(SEARCH_RESULTS_PER_QUERY).forEachIndexed { rank, track ->
-                            if (track.id == seed.track.id) return@forEachIndexed
+                        result.data.take(SEARCH_RESULTS_PER_QUERY).forEachIndexed { rank, rawTrack ->
+                            if (rawTrack.id == seed.track.id || dislikedIds.contains(rawTrack.id)) {
+                                return@forEachIndexed
+                            }
+
+                            val track = rawTrack.copy(
+                                isFavorite = preferences.liked.containsKey(rawTrack.id)
+                            )
 
                             val score = RecommendationScorer.candidateScore(
                                 candidate = track,
@@ -52,14 +95,16 @@ class LocalRecommendationEngine(
                                 seedWeight = seedWeight,
                                 searchRank = rank,
                                 existingStat = history[track.id],
-                                seedIndex = seedIndex
+                                seedIndex = seedIndex,
+                                isExplicitlyLiked = preferences.liked.containsKey(track.id),
+                                dislikedTracks = dislikedTracks
                             )
 
                             val previous = candidates[track.id]
                             if (previous == null) {
                                 candidates[track.id] = Candidate(track, score)
                             } else {
-                                // Multiple strong seeds agreeing on the same song is a useful signal.
+                                // Agreement across several positive seeds is a strong signal.
                                 candidates[track.id] = previous.copy(
                                     score = max(previous.score, score) + min(previous.score, score) * 0.18
                                 )
@@ -71,7 +116,9 @@ class LocalRecommendationEngine(
             }
         }
 
-        val sorted = candidates.values.sortedByDescending { it.score }
+        val sorted = candidates.values
+            .filter { it.score > MIN_RECOMMENDATION_SCORE }
+            .sortedByDescending { it.score }
         val selected = diversify(sorted, limit)
 
         return PersonalizedRecommendations(
@@ -83,9 +130,7 @@ class LocalRecommendationEngine(
     private fun buildQueries(track: Track): List<String> {
         val queries = linkedSetOf<String>()
 
-        if (track.artist.isNotBlank()) {
-            queries += track.artist.trim()
-        }
+        if (track.artist.isNotBlank()) queries += track.artist.trim()
         if (track.title.isNotBlank() && track.artist.isNotBlank()) {
             queries += "${track.title.trim()} ${track.artist.trim()}"
         }
@@ -102,8 +147,6 @@ class LocalRecommendationEngine(
         val result = ArrayList<Track>(limit)
         val artistCounts = HashMap<String, Int>()
 
-        // Most results should be highly familiar/relevant, but prevent one artist from
-        // swallowing the entire Home page.
         sorted.forEach { candidate ->
             if (result.size >= limit) return@forEach
             val artistKey = candidate.track.artist.trim().lowercase()
@@ -128,10 +171,12 @@ class LocalRecommendationEngine(
     private data class Candidate(val track: Track, val score: Double)
 
     companion object {
-        private const val MAX_SEEDS = 5
+        private const val MAX_SEEDS = 6
         private const val MAX_QUERIES_PER_SEED = 3
         private const val SEARCH_RESULTS_PER_QUERY = 12
         private const val MAX_TRACKS_PER_ARTIST = 4
+        private const val EXPLICIT_LIKE_SEED_BONUS = 180.0
+        private const val MIN_RECOMMENDATION_SCORE = -40.0
     }
 }
 
@@ -151,7 +196,7 @@ object RecommendationScorer {
         val listeningSignal = min(equivalentFullPlays, 12.0) * 7.0
 
         val explicitSignal =
-            (if (stat.track.isFavorite) 30.0 else 0.0) +
+            (if (stat.track.isFavorite) 80.0 else 0.0) +
                 (if (stat.track.isDownloaded) 18.0 else 0.0)
 
         return playSignal + completionSignal + listeningSignal + recency + explicitSignal - skipPenalty
@@ -163,32 +208,46 @@ object RecommendationScorer {
         seedWeight: Double,
         searchRank: Int,
         existingStat: ListeningStat?,
-        seedIndex: Int
+        seedIndex: Int,
+        isExplicitlyLiked: Boolean,
+        dislikedTracks: List<Track>
     ): Double {
         var score = 0.0
 
-        val seedArtist = seed.track.artist.trim().lowercase()
-        val candidateArtist = candidate.artist.trim().lowercase()
+        val seedArtist = normalized(seed.track.artist)
+        val candidateArtist = normalized(candidate.artist)
         if (seedArtist.isNotBlank() && seedArtist == candidateArtist) score += 52.0
 
-        val seedAlbum = seed.track.album?.trim()?.lowercase()
-        val candidateAlbum = candidate.album?.trim()?.lowercase()
+        val seedAlbum = seed.track.album?.let(::normalized)
+        val candidateAlbum = candidate.album?.let(::normalized)
         if (!seedAlbum.isNullOrBlank() && seedAlbum == candidateAlbum) score += 18.0
 
         score += titleSimilarity(candidate.title, seed.track.title) * 20.0
         score += max(0, 24 - searchRank) * 2.0
 
-        // Stronger seeds influence more, but cap them so one obsession doesn't fully dominate.
-        score += min(seedWeight, 350.0) * 0.18
+        score += min(seedWeight, 500.0) * 0.20
         score -= seedIndex * 4.0
 
+        if (isExplicitlyLiked) score += 160.0
+
         if (existingStat != null) {
-            // Familiar tracks are allowed, but repeated positive behavior helps more than mere history.
-            score += min(preferenceScore(existingStat), 220.0) * 0.16
+            score += min(preferenceScore(existingStat), 260.0) * 0.16
             score -= min(existingStat.skipCount, 6) * 8.0
         } else {
-            // Small discovery bonus keeps the list from becoming only songs already played.
             score += 12.0
+        }
+
+        // Explicit dislikes are stronger than passive skips. The exact track is already
+        // filtered out; these penalties reduce close relatives without banning a whole genre.
+        dislikedTracks.forEach { disliked ->
+            if (candidateArtist.isNotBlank() && candidateArtist == normalized(disliked.artist)) {
+                score -= 48.0
+            }
+            val dislikedAlbum = disliked.album?.let(::normalized)
+            if (!candidateAlbum.isNullOrBlank() && !dislikedAlbum.isNullOrBlank() && candidateAlbum == dislikedAlbum) {
+                score -= 28.0
+            }
+            score -= titleSimilarity(candidate.title, disliked.title) * 24.0
         }
 
         return score
@@ -202,6 +261,8 @@ object RecommendationScorer {
         val union = aTokens.union(bTokens).size.toDouble().coerceAtLeast(1.0)
         return intersection / union
     }
+
+    private fun normalized(value: String): String = value.trim().lowercase()
 
     private fun tokenize(value: String): Set<String> = value
         .lowercase()
