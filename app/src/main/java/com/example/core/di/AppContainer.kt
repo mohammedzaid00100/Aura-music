@@ -10,6 +10,9 @@ import com.example.core.domain.repository.LyricsRepository
 import com.example.core.domain.repository.MusicRepository
 import com.example.core.network.MusicSource
 import com.example.core.network.innertube.InnertubeMusicSource
+import com.example.core.recommendation.ListeningHistoryRepository
+import com.example.core.recommendation.ListeningHistoryTracker
+import com.example.core.recommendation.LocalRecommendationEngine
 import com.example.playback.AuraPlaybackNotificationService
 import com.example.playback.PlaybackController
 import com.example.playback.PlaybackControllerImpl
@@ -26,6 +29,8 @@ interface AppContainer {
     val musicSource: MusicSource
     val musicRepository: MusicRepository
     val lyricsRepository: LyricsRepository
+    val listeningHistoryRepository: ListeningHistoryRepository
+    val recommendationEngine: LocalRecommendationEngine
     val playbackController: PlaybackController
 }
 
@@ -46,8 +51,28 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         LyricsRepositoryImpl()
     }
 
+    override val listeningHistoryRepository by lazy {
+        ListeningHistoryRepository(context.applicationContext)
+    }
+
+    override val recommendationEngine by lazy {
+        LocalRecommendationEngine(
+            musicRepository = musicRepository,
+            historyRepository = listeningHistoryRepository
+        )
+    }
+
+    private val listeningHistoryTracker by lazy {
+        ListeningHistoryTracker(
+            repository = listeningHistoryRepository,
+            scope = appScope
+        )
+    }
+
     override val playbackController: PlaybackController by lazy {
         PlaybackControllerImpl(context, downloadRepository = downloadRepository).also { controller ->
+            listeningHistoryTracker.start(controller.playbackState)
+
             appScope.launch {
                 controller.playbackState
                     .map { it.currentTrack != null }
