@@ -19,18 +19,19 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,21 +51,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.size.Precision
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
-import com.example.core.design.DownloadButton
 import com.example.core.common.Formatters
+import com.example.core.design.DownloadButton
 import com.example.core.model.PlaybackState
 import com.example.core.model.RepeatMode
 import com.example.core.util.ArtworkUtils
@@ -73,6 +72,8 @@ import com.example.core.util.ArtworkUtils
 @Composable
 fun FullPlayerSheet(
     playbackState: PlaybackState,
+    isLiked: Boolean,
+    isDisliked: Boolean,
     onCollapse: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
@@ -80,7 +81,8 @@ fun FullPlayerSheet(
     onSeekTo: (Long) -> Unit,
     onToggleShuffle: () -> Unit,
     onToggleRepeat: () -> Unit,
-    onToggleFavorite: () -> Unit,
+    onToggleLike: () -> Unit,
+    onToggleDislike: () -> Unit,
     onOpenLyrics: () -> Unit,
     onOpenQueue: () -> Unit,
     modifier: Modifier = Modifier
@@ -105,9 +107,7 @@ fun FullPlayerSheet(
     }
 
     Surface(
-        modifier = modifier
-            .fillMaxSize()
-            .testTag("full_player_sheet"),
+        modifier = modifier.fillMaxSize().testTag("full_player_sheet"),
         color = MaterialTheme.colorScheme.background
     ) {
         Box(
@@ -131,18 +131,12 @@ fun FullPlayerSheet(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Top Action Bar
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = onCollapse,
-                        modifier = Modifier.testTag("player_collapse_button")
-                    ) {
+                    IconButton(onClick = onCollapse, modifier = Modifier.testTag("player_collapse_button")) {
                         Icon(
                             imageVector = Icons.Default.KeyboardArrowDown,
                             contentDescription = "Collapse Player",
@@ -158,10 +152,7 @@ fun FullPlayerSheet(
                         letterSpacing = androidx.compose.ui.unit.TextUnit(1.5f, androidx.compose.ui.unit.TextUnitType.Sp)
                     )
 
-                    IconButton(
-                        onClick = onOpenQueue,
-                        modifier = Modifier.testTag("player_queue_button")
-                    ) {
+                    IconButton(onClick = onOpenQueue, modifier = Modifier.testTag("player_queue_button")) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                             contentDescription = "Queue",
@@ -172,7 +163,6 @@ fun FullPlayerSheet(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Large Artwork with ambient shadow
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(0.85f)
@@ -182,10 +172,7 @@ fun FullPlayerSheet(
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     val context = LocalContext.current
-                    val highResArtwork = remember(track.artworkUrl) {
-                        ArtworkUtils.getHighResArtworkUrl(track.artworkUrl)
-                    }
-
+                    val highResArtwork = remember(track.artworkUrl) { ArtworkUtils.getHighResArtworkUrl(track.artworkUrl) }
                     AsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(highResArtwork)
@@ -202,7 +189,6 @@ fun FullPlayerSheet(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Title, Artist, & Favorite
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -230,21 +216,32 @@ fun FullPlayerSheet(
                     DownloadButton(track = track)
 
                     IconButton(
-                        onClick = onToggleFavorite,
-                        modifier = Modifier.testTag("full_player_favorite_button")
+                        onClick = onToggleLike,
+                        modifier = Modifier.testTag("full_player_like_button")
                     ) {
                         Icon(
-                            imageVector = if (track.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                            contentDescription = if (track.isFavorite) "Favorite track" else "Unfavorite track",
-                            tint = if (track.isFavorite) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(28.dp)
+                            imageVector = Icons.Default.ThumbUp,
+                            contentDescription = if (isLiked) "Remove from Liked Songs" else "Like song",
+                            tint = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(27.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onToggleDislike,
+                        modifier = Modifier.testTag("full_player_dislike_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ThumbDown,
+                            contentDescription = if (isDisliked) "Remove dislike" else "Dislike and reduce similar recommendations",
+                            tint = if (isDisliked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(27.dp)
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Progress Slider & Timers
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Slider(
                         value = currentFraction,
@@ -261,15 +258,10 @@ fun FullPlayerSheet(
                             activeTrackColor = MaterialTheme.colorScheme.primary,
                             inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
                         ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("player_progress_slider")
+                        modifier = Modifier.fillMaxWidth().testTag("player_progress_slider")
                     )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(
                             text = Formatters.formatDuration(displayPositionMs),
                             style = MaterialTheme.typography.bodyMedium,
@@ -285,42 +277,24 @@ fun FullPlayerSheet(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Playback Controls Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Shuffle
-                    IconButton(
-                        onClick = onToggleShuffle,
-                        modifier = Modifier.testTag("player_shuffle_button")
-                    ) {
+                    IconButton(onClick = onToggleShuffle, modifier = Modifier.testTag("player_shuffle_button")) {
                         Icon(
                             imageVector = Icons.Default.Shuffle,
                             contentDescription = "Toggle Shuffle",
-                            tint = if (playbackState.shuffleMode) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                            }
+                            tint = if (playbackState.shuffleMode) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                         )
                     }
 
-                    // Previous
-                    IconButton(
-                        onClick = onSkipPrevious,
-                        modifier = Modifier.size(48.dp).testTag("player_skip_prev_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipPrevious,
-                            contentDescription = "Previous Track",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(36.dp)
-                        )
+                    IconButton(onClick = onSkipPrevious, modifier = Modifier.size(48.dp).testTag("player_skip_prev_button")) {
+                        Icon(Icons.Default.SkipPrevious, "Previous Track", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(36.dp))
                     }
 
-                    // Large Play / Pause FAB
                     Box(
                         modifier = Modifier
                             .size(72.dp)
@@ -347,39 +321,15 @@ fun FullPlayerSheet(
                         }
                     }
 
-                    // Next
-                    IconButton(
-                        onClick = onSkipNext,
-                        modifier = Modifier.size(48.dp).testTag("player_skip_next_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SkipNext,
-                            contentDescription = "Next Track",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(36.dp)
-                        )
+                    IconButton(onClick = onSkipNext, modifier = Modifier.size(48.dp).testTag("player_skip_next_button")) {
+                        Icon(Icons.Default.SkipNext, "Next Track", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(36.dp))
                     }
 
-                    // Repeat Mode
-                    IconButton(
-                        onClick = onToggleRepeat,
-                        modifier = Modifier.testTag("player_repeat_button")
-                    ) {
-                        val icon = if (playbackState.repeatMode == RepeatMode.ONE) {
-                            Icons.Default.RepeatOne
-                        } else {
-                            Icons.Default.Repeat
-                        }
-                        val tint = if (playbackState.repeatMode != RepeatMode.OFF) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        }
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = "Repeat Mode: ${playbackState.repeatMode}",
-                            tint = tint
-                        )
+                    IconButton(onClick = onToggleRepeat, modifier = Modifier.testTag("player_repeat_button")) {
+                        val icon = if (playbackState.repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat
+                        val tint = if (playbackState.repeatMode != RepeatMode.OFF) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        Icon(icon, "Repeat Mode: ${playbackState.repeatMode}", tint = tint)
                     }
                 }
 
@@ -389,19 +339,14 @@ fun FullPlayerSheet(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 2.dp)
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
                     )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Bottom Footer with Lyrics Button
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 32.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
