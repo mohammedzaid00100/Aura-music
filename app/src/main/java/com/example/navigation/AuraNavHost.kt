@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -21,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -65,12 +65,21 @@ fun AuraApp(
     var isPlayerExpanded by remember { mutableStateOf(false) }
     var isLyricsOpen by remember { mutableStateOf(false) }
     var isQueueOpen by remember { mutableStateOf(false) }
-
     var currentLyrics by remember { mutableStateOf<Lyrics?>(null) }
     val scope = rememberCoroutineScope()
 
+    fun navigatePrimary(route: String) {
+        if (currentRoute == route) return
+        navController.navigate(route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             Column(
                 modifier = Modifier
@@ -92,18 +101,7 @@ fun AuraApp(
 
                 FloatingNavBar(
                     currentRoute = currentRoute,
-                    onNavigate = { route ->
-                        if (currentRoute != route) {
-                            navController.navigate(route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    },
-                    modifier = Modifier.padding(bottom = 6.dp)
+                    onNavigate = ::navigatePrimary
                 )
             }
         }
@@ -128,7 +126,11 @@ fun AuraApp(
                             appContainer.recommendationEngine
                         )
                     )
-                    HomeScreen(viewModel = homeViewModel)
+                    HomeScreen(
+                        viewModel = homeViewModel,
+                        onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
+                        onNavigateToLibrary = { navigatePrimary(Screen.Library.route) }
+                    )
                 }
 
                 composable(Screen.Search.route) {
@@ -146,10 +148,16 @@ fun AuraApp(
                         factory = LibraryViewModel.provideFactory(
                             appContainer.musicRepository,
                             appContainer.playbackController,
-                            appContainer.downloadRepository
+                            appContainer.downloadRepository,
+                            appContainer.trackPreferenceRepository,
+                            appContainer.listeningHistoryRepository
                         )
                     )
-                    LibraryScreen(viewModel = libraryViewModel)
+                    LibraryScreen(
+                        viewModel = libraryViewModel,
+                        onNavigateToSearch = { navigatePrimary(Screen.Search.route) },
+                        onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
+                    )
                 }
 
                 composable(Screen.Settings.route) {
