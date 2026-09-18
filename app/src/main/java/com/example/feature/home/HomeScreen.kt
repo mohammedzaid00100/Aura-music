@@ -1,7 +1,7 @@
 package com.example.feature.home
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -25,8 +25,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Waves
@@ -38,19 +39,19 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.R
@@ -59,310 +60,388 @@ import com.example.core.design.TrackItem
 import com.example.core.model.Artist
 import com.example.core.model.Playlist
 import com.example.core.model.Track
-import com.example.core.util.ArtworkUtils
+import java.util.Calendar
 
-private val MoodChips = listOf(
-    "Sleep", "Relax", "Feel good", "Sad", "Chill",
-    "Commute", "Energize", "Focus", "Gaming", "Party", "Romance", "Workout"
-)
+private val MoodChips = listOf("Chill", "Focus", "Workout", "Party", "Sleep", "Romance", "Feel good")
 
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
     onNavigateToSettings: (() -> Unit)? = null,
+    onNavigateToLibrary: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val featuredResource by viewModel.featuredTracks.collectAsStateWithLifecycle()
+    val personalizedResource by viewModel.personalizedTracks.collectAsStateWithLifecycle()
     val trendingResource by viewModel.trendingTracks.collectAsStateWithLifecycle()
     val playlistsResource by viewModel.recommendedPlaylists.collectAsStateWithLifecycle()
     val artistsResource by viewModel.topArtists.collectAsStateWithLifecycle()
-    val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
+    val recentTracks by viewModel.recentTracks.collectAsStateWithLifecycle()
+    val likedTracks by viewModel.likedTracks.collectAsStateWithLifecycle()
+    val seedTitle by viewModel.recommendationSeedTitle.collectAsStateWithLifecycle()
     val selectedMood by viewModel.selectedMood.collectAsStateWithLifecycle()
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+
+    val featured = (featuredResource as? Resource.Success<List<Track>>)?.data.orEmpty()
+    val personalized = (personalizedResource as? Resource.Success<List<Track>>)?.data.orEmpty()
+
+    val recentIds = recentTracks.mapTo(mutableSetOf()) { it.id }
+    val madeForYou = personalized.filterNot { it.id in recentIds }.take(10)
+    val madeIds = madeForYou.mapTo(mutableSetOf()) { it.id }
+    val favorites = likedTracks.filterNot { it.id in recentIds || it.id in madeIds }.take(10)
+    val favoriteIds = favorites.mapTo(mutableSetOf()) { it.id }
+    val recommended = featured
+        .filterNot { it.id in recentIds || it.id in madeIds || it.id in favoriteIds }
+        .take(12)
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .testTag("home_screen"),
-        contentPadding = PaddingValues(bottom = 140.dp)
+        contentPadding = PaddingValues(bottom = 28.dp)
     ) {
-        // 1. Header: AURA MUSIC with action icons
         item {
             HomeHeader(onSettingsClick = onNavigateToSettings)
         }
 
-        // 2. Horizontal Mood / Category Chips
+        item {
+            QuickAccessGrid(
+                likedCount = likedTracks.size,
+                recentCount = recentTracks.size,
+                onLibraryClick = { onNavigateToLibrary?.invoke() }
+            )
+        }
+
         item {
             MoodChipsRow(
                 selectedMood = selectedMood,
-                onSelectMood = { viewModel.selectMood(it) }
+                onSelectMood = viewModel::selectMood
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(22.dp))
         }
 
-        // 3. KEEP LISTENING Section (Real recently played / favorites)
-        item {
-            SectionTitle(
-                title = "KEEP LISTENING",
-                subtitle = "Pick up right where you left off"
-            )
-
-            val keepListeningTracks = if (favoriteTracks.isNotEmpty()) {
-                favoriteTracks
-            } else if (featuredResource is Resource.Success) {
-                (featuredResource as Resource.Success<List<Track>>).data
-            } else {
-                emptyList()
+        if (recentTracks.isNotEmpty()) {
+            item {
+                MusicSection(
+                    title = "Recently played",
+                    subtitle = "Jump back into your latest listens",
+                    tracks = recentTracks,
+                    currentTrackId = playbackState.currentTrack?.id,
+                    isPlaying = playbackState.isPlaying,
+                    onPlay = { track, queue -> viewModel.playTrack(track, queue) }
+                )
             }
+        }
 
-            if (keepListeningTracks.isNotEmpty()) {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    items(keepListeningTracks) { track ->
-                        KeepListeningCard(
-                            track = track,
-                            isPlaying = playbackState.currentTrack?.id == track.id && playbackState.isPlaying,
-                            onClick = { viewModel.playTrack(track, keepListeningTracks) }
-                        )
-                    }
+        if (madeForYou.isNotEmpty()) {
+            item {
+                MusicSection(
+                    title = "Made for you",
+                    subtitle = "Shaped by your listening, likes and skips",
+                    tracks = madeForYou,
+                    currentTrackId = playbackState.currentTrack?.id,
+                    isPlaying = playbackState.isPlaying,
+                    onPlay = { track, queue -> viewModel.playTrack(track, queue) }
+                )
+            }
+        }
+
+        if (!seedTitle.isNullOrBlank() && personalized.isNotEmpty()) {
+            val becauseTracks = personalized
+                .filterNot { it.id in recentIds || it.id in madeIds }
+                .drop(2)
+                .take(8)
+            if (becauseTracks.isNotEmpty()) {
+                item {
+                    MusicSection(
+                        title = "Because you listened to $seedTitle",
+                        subtitle = "More from the sound you keep coming back to",
+                        tracks = becauseTracks,
+                        currentTrackId = playbackState.currentTrack?.id,
+                        isPlaying = playbackState.isPlaying,
+                        onPlay = { track, queue -> viewModel.playTrack(track, queue) }
+                    )
                 }
-            } else {
-                LoadingSection()
             }
-            Spacer(modifier = Modifier.height(28.dp))
         }
 
-        // 4. RECOMMENDED FOR YOU (Quick Picks)
-        item {
-            SectionTitle(
-                title = "Recommended For You",
-                subtitle = "Handcrafted recommendations for your sonic journey"
-            )
-
-            when (val state = featuredResource) {
-                is Resource.Loading -> LoadingSection()
-                is Resource.Success -> {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        items(state.data) { track ->
-                            QuickPickCard(
-                                track = track,
-                                isPlaying = playbackState.currentTrack?.id == track.id && playbackState.isPlaying,
-                                onClick = { viewModel.playTrack(track, state.data) }
-                            )
-                        }
-                    }
-                }
-                is Resource.Error -> ErrorSection(message = state.message)
-                else -> Unit
+        if (favorites.isNotEmpty()) {
+            item {
+                MusicSection(
+                    title = "Your favorites",
+                    subtitle = "Songs you explicitly liked",
+                    tracks = favorites,
+                    currentTrackId = playbackState.currentTrack?.id,
+                    isPlaying = playbackState.isPlaying,
+                    onPlay = { track, queue -> viewModel.playTrack(track, queue) }
+                )
             }
-            Spacer(modifier = Modifier.height(28.dp))
         }
 
-        // 5. TRENDING SECTION
         item {
-            SectionTitle(
-                title = "Trending Now",
-                subtitle = "Most played in the community today"
-            )
+            when {
+                recommended.isNotEmpty() -> MusicSection(
+                    title = "Recommended for you",
+                    subtitle = "Fresh picks without repeating everything above",
+                    tracks = recommended,
+                    currentTrackId = playbackState.currentTrack?.id,
+                    isPlaying = playbackState.isPlaying,
+                    onPlay = { track, queue -> viewModel.playTrack(track, queue) }
+                )
+                featuredResource is Resource.Loading -> LoadingSection()
+            }
         }
 
+        item {
+            SectionHeading("Trending now", "Popular tracks worth a listen")
+        }
         when (val state = trendingResource) {
-            is Resource.Loading -> {
-                item { LoadingSection() }
-            }
             is Resource.Success -> {
-                items(state.data.take(5)) { track ->
+                items(state.data.take(6), key = { it.id }) { track ->
                     TrackItem(
                         track = track,
                         isSelected = playbackState.currentTrack?.id == track.id,
                         isPlaying = playbackState.currentTrack?.id == track.id && playbackState.isPlaying,
                         onClick = { viewModel.playTrack(track, state.data) },
                         onToggleFavorite = { viewModel.toggleFavorite(track) },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 1.dp)
                     )
                 }
             }
-            is Resource.Error -> {
-                item { ErrorSection(message = state.message) }
-            }
+            is Resource.Loading -> item { LoadingSection() }
+            is Resource.Error -> item { ErrorSection(state.message) }
             else -> Unit
         }
 
-        // 6. POPULAR ARTISTS
         item {
-            Spacer(modifier = Modifier.height(28.dp))
-            SectionTitle(
-                title = "Popular Artists",
-                subtitle = "Creators shaping the soundscape"
-            )
             when (val state = artistsResource) {
                 is Resource.Success -> {
+                    Spacer(modifier = Modifier.height(22.dp))
+                    SectionHeading("Popular artists", "Creators in rotation")
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        horizontalArrangement = Arrangement.spacedBy(18.dp)
                     ) {
-                        items(state.data) { artist ->
-                            ArtistCard(artist = artist)
-                        }
+                        items(state.data, key = { it.id }) { artist -> ArtistCard(artist) }
                     }
                 }
                 else -> Unit
             }
         }
 
-        // 7. CURATED PLAYLISTS
         item {
-            Spacer(modifier = Modifier.height(28.dp))
-            SectionTitle(
-                title = "Curated Playlists",
-                subtitle = "Soundtracks crafted for every mood"
-            )
             when (val state = playlistsResource) {
                 is Resource.Success -> {
+                    Spacer(modifier = Modifier.height(26.dp))
+                    SectionHeading("Curated playlists", "Ready-made listening for the moment")
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        items(state.data) { playlist ->
-                            PlaylistCard(
-                                playlist = playlist,
-                                onClick = {
-                                    if (playlist.tracks.isNotEmpty()) {
-                                        viewModel.playTrack(playlist.tracks.first(), playlist.tracks)
-                                    }
+                        items(state.data, key = { it.id }) { playlist ->
+                            PlaylistCard(playlist) {
+                                if (playlist.tracks.isNotEmpty()) {
+                                    viewModel.playTrack(playlist.tracks.first(), playlist.tracks)
                                 }
-                            )
+                            }
                         }
                     }
                 }
                 else -> Unit
             }
+            Spacer(modifier = Modifier.height(22.dp))
         }
     }
 }
 
 @Composable
-private fun HomeHeader(
-    onSettingsClick: (() -> Unit)? = null
-) {
+private fun HomeHeader(onSettingsClick: (() -> Unit)?) {
+    val hour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
+    val greeting = when (hour) {
+        in 5..11 -> "Good morning"
+        in 12..16 -> "Good afternoon"
+        else -> "Good evening"
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, end = 12.dp, top = 20.dp, bottom = 12.dp),
+            .padding(start = 18.dp, end = 10.dp, top = 20.dp, bottom = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                painter = painterResource(id = R.drawable.ic_app_logo),
-                contentDescription = "Aura Music Logo",
+                painter = painterResource(R.drawable.ic_app_logo),
+                contentDescription = "Aura Music",
                 tint = Color.Unspecified,
                 modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(11.dp))
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column {
                 Text(
-                    text = "AURA MUSIC",
-                    style = MaterialTheme.typography.titleLarge,
+                    text = greeting,
+                    style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 1.sp,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Pure sonic immersion",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
+                    text = "Aura Music",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { /* History */ }) {
+        if (onSettingsClick != null) {
+            IconButton(onClick = onSettingsClick) {
                 Icon(
-                    imageVector = Icons.Default.History,
-                    contentDescription = "History",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint = MaterialTheme.colorScheme.onSurface
                 )
-            }
-            IconButton(onClick = { /* Notifications / Alerts */ }) {
-                Icon(
-                    imageVector = Icons.Default.Notifications,
-                    contentDescription = "Notifications",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            if (onSettingsClick != null) {
-                IconButton(onClick = onSettingsClick) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
         }
     }
 }
 
 @Composable
-private fun MoodChipsRow(
-    selectedMood: String?,
-    onSelectMood: (String) -> Unit
+private fun QuickAccessGrid(
+    likedCount: Int,
+    recentCount: Int,
+    onLibraryClick: () -> Unit
 ) {
+    Column(
+        modifier = Modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            QuickAccessCard(
+                title = "Liked Songs",
+                subtitle = "$likedCount liked",
+                icon = Icons.Default.Favorite,
+                modifier = Modifier.weight(1f),
+                onClick = onLibraryClick
+            )
+            QuickAccessCard(
+                title = "Downloads",
+                subtitle = "Offline library",
+                icon = Icons.Default.Download,
+                modifier = Modifier.weight(1f),
+                onClick = onLibraryClick
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            QuickAccessCard(
+                title = "Recently Played",
+                subtitle = "$recentCount recent",
+                icon = Icons.Default.History,
+                modifier = Modifier.weight(1f),
+                onClick = onLibraryClick
+            )
+            QuickAccessCard(
+                title = "Made for You",
+                subtitle = "Your Aura mix",
+                icon = Icons.Default.Waves,
+                modifier = Modifier.weight(1f),
+                onClick = {}
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickAccessCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = modifier
+            .height(62.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
+                                MaterialTheme.colorScheme.secondary.copy(alpha = 0.65f)
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, tint = Color.White, modifier = Modifier.size(22.dp))
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoodChipsRow(selectedMood: String?, onSelectMood: (String) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         MoodChips.forEach { mood ->
-            val isSelected = selectedMood == mood
-            val bgColor by animateColorAsState(
-                targetValue = if (isSelected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                },
-                label = "chip_bg"
+            val selected = mood == selectedMood
+            val background by animateColorAsState(
+                targetValue = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceVariant,
+                animationSpec = tween(180),
+                label = "mood_background"
             )
-            val textColor by animateColorAsState(
-                targetValue = if (isSelected) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                label = "chip_text"
+            val foreground by animateColorAsState(
+                targetValue = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
+                animationSpec = tween(180),
+                label = "mood_foreground"
             )
-
             Surface(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(CircleShape)
                     .clickable { onSelectMood(mood) },
-                shape = RoundedCornerShape(16.dp),
-                color = bgColor,
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = if (isSelected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                    }
-                )
+                shape = CircleShape,
+                color = background
             ) {
                 Text(
                     text = mood,
                     style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = textColor,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp)
+                    fontWeight = FontWeight.SemiBold,
+                    color = foreground,
+                    modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp)
                 )
             }
         }
@@ -370,104 +449,123 @@ private fun MoodChipsRow(
 }
 
 @Composable
-private fun KeepListeningCard(
-    track: Track,
+private fun MusicSection(
+    title: String,
+    subtitle: String,
+    tracks: List<Track>,
+    currentTrackId: String?,
     isPlaying: Boolean,
-    onClick: () -> Unit
+    onPlay: (Track, List<Track>) -> Unit
 ) {
-    Surface(
-        modifier = Modifier
-            .width(168.dp)
-            .shadow(8.dp, shape = RoundedCornerShape(20.dp), spotColor = Color.Black.copy(alpha = 0.4f))
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
-            .testTag("keep_listening_${track.id}"),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-        )
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(16.dp))
-            ) {
-                AsyncImage(
-                    model = ArtworkUtils.getHighResArtworkUrl(track.artworkUrl),
-                    contentDescription = track.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+    if (tracks.isEmpty()) return
+    Column {
+        SectionHeading(title, subtitle)
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            items(tracks, key = { it.id }) { track ->
+                MusicCard(
+                    track = track,
+                    isPlaying = currentTrackId == track.id && isPlaying,
+                    onClick = { onPlay(track, tracks) }
                 )
+            }
+        }
+        Spacer(modifier = Modifier.height(26.dp))
+    }
+}
 
-                // Play overlay with liquid glass pill
+@Composable
+private fun MusicCard(track: Track, isPlaying: Boolean, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(154.dp)
+            .clickable(onClick = onClick)
+            .testTag("home_track_${track.id}")
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            AsyncImage(
+                model = track.artworkUrl,
+                contentDescription = track.title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            if (isPlaying) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(8.dp)
-                        .size(36.dp)
-                        .shadow(6.dp, shape = CircleShape)
+                        .size(34.dp)
                         .clip(CircleShape)
-                        .background(
-                            if (isPlaying) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
-                        ),
+                        .background(MaterialTheme.colorScheme.onSurface),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (isPlaying) {
-                        Icon(
-                            imageVector = Icons.Default.Waves,
-                            contentDescription = "Playing",
-                            tint = MaterialTheme.colorScheme.onSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Play",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Waves,
+                        contentDescription = "Playing",
+                        tint = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.72f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(21.dp)
+                    )
                 }
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = track.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = track.artist,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = track.title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = track.artist,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
 @Composable
-private fun SectionTitle(title: String, subtitle: String) {
+private fun SectionHeading(title: String, subtitle: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .padding(horizontal = 18.dp, vertical = 9.dp)
     ) {
         Text(
             text = title,
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
         )
         Text(
             text = subtitle,
@@ -478,153 +576,64 @@ private fun SectionTitle(title: String, subtitle: String) {
 }
 
 @Composable
-private fun QuickPickCard(
-    track: Track,
-    isPlaying: Boolean,
-    onClick: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .width(160.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .clickable(onClick = onClick)
-            .testTag("quick_pick_${track.id}"),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-        )
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(14.dp))
-            ) {
-                AsyncImage(
-                    model = ArtworkUtils.getHighResArtworkUrl(track.artworkUrl),
-                    contentDescription = track.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-
-                Box(
-                    modifier = Modifier
-                        .padding(8.dp)
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .align(Alignment.BottomEnd),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Play",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = track.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = track.artist,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun PlaylistCard(
-    playlist: Playlist,
-    onClick: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .width(156.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .clickable(onClick = onClick)
-            .testTag("playlist_card_${playlist.id}"),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-        )
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(14.dp))
-            ) {
-                AsyncImage(
-                    model = playlist.coverUrl,
-                    contentDescription = playlist.name,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = playlist.name,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = "${playlist.trackCount} tracks",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
 private fun ArtistCard(artist: Artist) {
     Column(
-        modifier = Modifier
-            .width(104.dp)
-            .testTag("artist_card_${artist.id}"),
+        modifier = Modifier.width(112.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         AsyncImage(
             model = artist.artworkUrl,
             contentDescription = artist.name,
             modifier = Modifier
-                .size(92.dp)
-                .clip(CircleShape),
+                .size(108.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
             contentScale = ContentScale.Crop
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = artist.name,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = MaterialTheme.colorScheme.onSurface
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun PlaylistCard(playlist: Playlist, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(166.dp)
+            .clickable(onClick = onClick)
+    ) {
+        AsyncImage(
+            model = playlist.coverUrl,
+            contentDescription = playlist.name,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentScale = ContentScale.Crop
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = playlist.name,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = playlist.description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -634,28 +643,23 @@ private fun LoadingSection() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(140.dp),
+            .height(100.dp),
         contentAlignment = Alignment.Center
     ) {
         CircularProgressIndicator(
-            modifier = Modifier.size(32.dp),
-            color = MaterialTheme.colorScheme.primary
+            modifier = Modifier.size(28.dp),
+            color = MaterialTheme.colorScheme.primary,
+            strokeWidth = 3.dp
         )
     }
 }
 
 @Composable
 private fun ErrorSection(message: String) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.error
-        )
-    }
+    Text(
+        text = message,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)
+    )
 }
