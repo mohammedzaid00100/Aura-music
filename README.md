@@ -2,7 +2,7 @@
 
 Native Android music app with song downloads, local-first Media3 playback and downloaded-only playlists, built with Kotlin and Jetpack Compose.
 
-Aura Music grew from a personal need for a music app that keeps downloaded songs available offline and makes them easier to organize by mood.
+Aura Music grew from a personal need for a music app that keeps downloaded songs available offline and makes them easier to organize by mood
 
 ## Key features
 
